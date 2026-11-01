@@ -78,8 +78,36 @@ export default {
         temperature: 0.2, max_tokens: 1300, stream: false
       });
       const output = result?.result ?? result;
-      return json({ success: true, model: MODEL, analysis: output?.answer ?? null,
-        metrics: output?.metrics ?? null, finish_reason: output?.finish_reason ?? null });
+      const description = output?.answer;
+      if (typeof description !== 'string' || !description.trim()) {
+        return json({ error: 'Obrazový model nevrátil použitelný popis fotografie.' }, 502);
+      }
+      let languageResult;
+      try {
+        languageResult = await env.AI.run(TEXT_MODEL, {
+          messages: [
+            { role: 'system', content: 'Jsi zkušený český lektor digitální bezpečnosti. Vytváříš přesné a srozumitelné výukové analýzy. Podkladem je pouze anglický popis fotografie, nikoli fotografie samotná. Nezměň ani nepřekládej nepřesně konkrétní předměty (shirt znamená košile jen pokud je uvedeno shirt; white shirt je bílá košile, nikoli tričko). Neodhaduj identitu osob, polohu ani čas bez důkazů. Nevymýšlej nové vizuální detaily. Věcně odlišuj pozorování, hypotézy a neznámé informace. Piš přirozenou češtinou.' },
+            { role: 'user', content: 'Na základě NÁSLEDUJÍCÍHO POPISU fotografie napiš krátkou českou analýzu pro výuku digitální stopy (maximálně 180 slov). Použij čtyři označené části: VIDITELNÉ SKUTEČNOSTI (stručně věrně popiš), MOŽNÉ STOPY (nanejvýš tři relevantní vodítka; u každého uveď důkaz a nejistotu; pokud žádné nejsou, výslovně to řekni), CO NELZE ZJISTIT (konkrétní hranice poznání), BEZPEČNÉ SDÍLENÍ (jedno praktické doporučení týkající se soukromí, nikoli autorských práv). Nevydávej domněnky za fakta. Nepovažuj každý předmět za odhalující stopu. Metadata EXIF nemáš k dispozici.\\n\\nPOPIS:\\n' + description }
+          ],
+          max_tokens: 850,
+          temperature: 0.1
+        });
+      } catch (error) {
+        console.error('FotoStopa language model failed:', {
+          name: error?.name ?? 'Error', message: error?.message ?? 'Unknown error'
+        });
+        return json({ error: 'Česká analýza se nezdařila.', visual_description: description,
+          visual_model: MODEL }, 502);
+      }
+      const textOutput = languageResult?.result ?? languageResult;
+      const analysis = textOutput?.response ?? textOutput?.choices?.[0]?.message?.content ?? textOutput?.answer;
+      if (typeof analysis !== 'string' || !analysis.trim()) {
+        return json({ error: 'Jazykový model nevrátil použitelný text.',
+          visual_description: description, visual_model: MODEL }, 502);
+      }
+      return json({ success: true, model: TEXT_MODEL, visual_model: MODEL,
+        visual_description: description, analysis,
+        metrics: { vision: output?.metrics ?? null, language: languageResult?.usage ?? textOutput?.usage ?? null } });
     } catch (error) {
       // Never log uploaded photos, tokens, or request bodies.
       console.error('FotoStopa AI request failed:', {

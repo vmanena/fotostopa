@@ -22,7 +22,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/' && request.method === 'GET')
       return json({ service: 'FotoStopa AI', status: 'ready', note: 'Testovací API vyžaduje autorizaci.' });
-    if (url.pathname !== '/analyze' && url.pathname !== '/test-qwen') return json({ error: 'Nenalezeno.' }, 404);
+    if (url.pathname !== '/analyze' && url.pathname !== '/test-qwen' && url.pathname !== '/test-text') return json({ error: 'Nenalezeno.' }, 404);
     if (request.method !== 'POST') return json({ error: 'Použijte POST.' }, 405);
     if (!authorized(request, env.TEST_API_KEY)) return json({ error: 'Neplatný nebo chybějící testovací klíč.' }, 401);
     if (!env.AI) return json({ error: 'Chybí vazba Workers AI.' }, 503);
@@ -70,14 +70,22 @@ export default {
       (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0);
     if (approxBytes <= 0 || approxBytes > MAX_IMAGE_BYTES)
       return json({ error: 'Obrázek musí mít nejvýše 4 MB.' }, 413);
-    // First validate basic image understanding before requesting structured analysis.
-    const question = 'What can you see in this image? Describe the main objects, visible text, and surroundings briefly.';
+    // Diagnostic-only vision test: ask specifically for legible text, without language-model rewriting.
+    const textTest = url.pathname === '/test-text';
+    const question = textTest
+      ? 'Read and transcribe any legible text in this image exactly as written. Focus on badges, name tags, clothing, signs and logos. Do not guess unreadable letters. If nothing is legible, say "No legible text".'
+      : 'What can you see in this image? Describe the main objects, visible text, and surroundings briefly.';
     try {
       const result = await env.AI.run(MODEL, {
         task: 'query', image, question, reasoning: false,
         temperature: 0.2, max_tokens: 1300, stream: false
       });
       const output = result?.result ?? result;
+      if (textTest) {
+        return json({ success: typeof output?.answer === 'string' && !!output.answer.trim(),
+          model: MODEL, transcription: output?.answer ?? null,
+          metrics: output?.metrics ?? null, finish_reason: output?.finish_reason ?? null });
+      }
       const description = output?.answer;
       if (typeof description !== 'string' || !description.trim()) {
         return json({ error: 'Obrazový model nevrátil použitelný popis fotografie.' }, 502);

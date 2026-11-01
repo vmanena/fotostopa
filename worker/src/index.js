@@ -27,7 +27,7 @@ function authorized(request, secret) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (request.method === 'OPTIONS' && ['/analyze', '/test-text'].includes(url.pathname)) {
+    if (request.method === 'OPTIONS' && ['/analyze', '/test-text', '/test-google'].includes(url.pathname)) {
       if (request.headers.get('Origin') !== ALLOWED_ORIGIN) return new Response(null, { status: 403 });
       return new Response(null, { status: 204, headers: {
         ...corsHeaders(request),
@@ -39,10 +39,10 @@ export default {
     if (url.pathname === '/' && request.method === 'GET')
       return json({ service: 'FotoStopa AI', status: 'ready', note: 'Testovací API vyžaduje autorizaci.' });
     const reply = (data, status = 200) => json(data, status, request);
-    if (url.pathname !== '/analyze' && url.pathname !== '/test-qwen' && url.pathname !== '/test-text') return reply({ error: 'Nenalezeno.' }, 404);
+    if (url.pathname !== '/analyze' && url.pathname !== '/test-qwen' && url.pathname !== '/test-text' && url.pathname !== '/test-google') return reply({ error: 'Nenalezeno.' }, 404);
     if (request.method !== 'POST') return reply({ error: 'Použijte POST.' }, 405);
     if (!authorized(request, env.TEST_API_KEY)) return reply({ error: 'Neplatný nebo chybějící testovací klíč.' }, 401);
-    if (!env.AI) return reply({ error: 'Chybí vazba Workers AI.' }, 503);
+    if (!env.AI && url.pathname !== '/test-google') return reply({ error: 'Chybí vazba Workers AI.' }, 503);
     const declaredSize = Number(request.headers.get('Content-Length'));
     if (declaredSize > MAX_REQUEST_BYTES) return reply({ error: 'Požadavek je příliš velký.' }, 413);
     if (!(request.headers.get('Content-Type') || '').toLowerCase().startsWith('application/json'))
@@ -87,6 +87,38 @@ export default {
       (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0);
     if (approxBytes <= 0 || approxBytes > MAX_IMAGE_BYTES)
       return reply({ error: 'Obrázek musí mít nejvýše 4 MB.' }, 413);
+    if (url.pathname === '/test-google') {
+      if (!env.GOOGLE_VISION_API_KEY) return reply({ error: 'Google Vision není nakonfigurován.' }, 503);
+      try {
+        const response = await fetch('https://vision.googleapis.com/v1/images:annotate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-goog-api-key': env.GOOGLE_VISION_API_KEY },
+          body: JSON.stringify({ requests: [{
+            image: { content: base64 },
+            features: [
+              { type: 'TEXT_DETECTION', maxResults: 30 },
+              { type: 'LABEL_DETECTION', maxResults: 20 },
+              { type: 'LOGO_DETECTION', maxResults: 10 },
+              { type: 'OBJECT_LOCALIZATION', maxResults: 20 }
+            ]
+          }] })
+        });
+        const data = await response.json();
+        if (!response.ok || data?.responses?.[0]?.error)
+          return reply({ error: 'Google Vision vrátil chybu.', status: data?.responses?.[0]?.error?.code ?? response.status }, 502);
+        const result = data?.responses?.[0] ?? {};
+        return reply({
+          success: true,
+          text: result.fullTextAnnotation?.text ?? result.textAnnotations?.[0]?.description ?? '',
+          labels: (result.labelAnnotations ?? []).map(x => ({ name: x.description, score: x.score })),
+          logos: (result.logoAnnotations ?? []).map(x => ({ name: x.description, score: x.score })),
+          objects: (result.localizedObjectAnnotations ?? []).map(x => ({ name: x.name, score: x.score }))
+        });
+      } catch (error) {
+        console.error('Google Vision request failed:', { name: error?.name ?? 'Error' });
+        return reply({ error: 'Google Vision není dostupný.' }, 502);
+      }
+    }
     // Diagnostic-only vision test: ask specifically for legible text, without language-model rewriting.
     const textTest = url.pathname === '/test-text';
     const question = textTest

@@ -60,10 +60,9 @@ export default {
         task: 'query', image, question, reasoning: false,
         temperature: 0.2, max_tokens: 1300, stream: false
       });
-      // Diagnostic only: response may contain inferred details from the uploaded photo.
-      console.log('Moondream response:', JSON.stringify(result));
-      return json({ success: true, model: MODEL, analysis: result?.answer ?? null,
-        metrics: result?.metrics ?? null, finish_reason: result?.finish_reason ?? null });
+      const output = result?.result ?? result;
+      return json({ success: true, model: MODEL, analysis: output?.answer ?? null,
+        metrics: output?.metrics ?? null, finish_reason: output?.finish_reason ?? null });
     } catch (error) {
       // Never log uploaded photos, tokens, or request bodies.
       console.error('FotoStopa AI request failed:', {

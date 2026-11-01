@@ -23,6 +23,7 @@
       <button id="clear" type="button" disabled>Vymazat výběr</button>
       <button id="ocr" type="button" disabled>Otestovat čtení textu</button>
       <button id="analyze" type="button" disabled>Kompletní analýza</button>
+      <button id="google" type="button" disabled>Otestovat Google Vision</button>
     </div>
     <p id="status" role="status" aria-live="polite">Zatím nejsou vybrané žádné fotografie.</p>
     <p><label for="apiKey">Testovací API klíč (zůstává pouze v paměti této stránky)</label></p>
@@ -33,12 +34,12 @@
   <script>
     const input=document.querySelector('#photos'), previews=document.querySelector('#previews');
     const status=document.querySelector('#status'), clear=document.querySelector('#clear');
-    const ocr=document.querySelector('#ocr'), analyze=document.querySelector('#analyze');
+    const ocr=document.querySelector('#ocr'), analyze=document.querySelector('#analyze'), google=document.querySelector('#google');
     const apiKey=document.querySelector('#apiKey'), results=document.querySelector('#results');
     const output=document.querySelector('#output');
     const API='https://fotostopa-ai.vaclav-453.workers.dev';
     let url=null, busy=false;
-    function updateButtons(){const ready=!!input.files.length&&!busy;clear.disabled=!ready;ocr.disabled=!ready;analyze.disabled=!ready}
+    function updateButtons(){const ready=!!input.files.length&&!busy;clear.disabled=!ready;ocr.disabled=!ready;analyze.disabled=!ready;google.disabled=!ready}
     function reset(){if(url)URL.revokeObjectURL(url);url=null;input.value='';
       previews.replaceChildren(...[1,2,3].map(n=>{const d=document.createElement('div');d.className='slot';d.textContent=n;return d}));
       results.hidden=true;output.textContent='';status.textContent='Zatím není vybraná žádná fotografie.';updateButtons()}
@@ -63,7 +64,15 @@
         const response=await fetch(API+endpoint,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({image:dataUrl}),cache:'no-store'});
         const data=await response.json();
         if(!response.ok)throw new Error(data.error||'HTTP '+response.status);
-        output.textContent=endpoint==='/test-text'
+        if(endpoint==='/test-google'){
+          const lines=[
+            'GOOGLE VISION – ROZPOZNANÝ TEXT:', data.text||'(žádný text)',
+            'LOGA:',JSON.stringify(data.logos||[],null,2),
+            'OBJEKTY:',JSON.stringify(data.objects||[],null,2),
+            'ŠTÍTKY SCÉNY:',JSON.stringify(data.labels||[],null,2)
+          ];
+          output.textContent=lines.join('\\n\\n');
+        }else         output.textContent=endpoint==='/test-text'
           ? 'PŘEPIS TEXTU (Moondream):\\n\\n'+(data.transcription||'Žádný výstup')+'\\n\\nMETRIKY:\\n'+JSON.stringify(data.metrics||{},null,2)
           : 'POPIS FOTOGRAFIE (Moondream):\\n\\n'+(data.visual_description||'')+'\\n\\nČESKÁ ANALÝZA (Llama):\\n\\n'+(data.analysis||'')+'\\n\\nMETRIKY:\\n'+JSON.stringify(data.metrics||{},null,2);
         status.textContent='Test dokončen.';
@@ -72,6 +81,7 @@
     }
     ocr.addEventListener('click',()=>test('/test-text'));
     analyze.addEventListener('click',()=>test('/analyze'));
+    google.addEventListener('click',()=>test('/test-google'));
     window.addEventListener('pagehide',()=>{if(url)URL.revokeObjectURL(url)});
   </script>
 </body>

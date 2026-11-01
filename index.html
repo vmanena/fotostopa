@@ -13,33 +13,66 @@
   <main>
     <h1>FotoStopa</h1>
     <p>Co o vás prozradí jediná fotografie?</p>
-    <p class="muted">Vyberte jednu až tři fotografie. V této testovací verzi se žádné snímky nikam neodesílají.</p>
+    <p class="muted">Testovací režim: vyberte jednu fotografii a porovnejte rozpoznání textu s celkovou analýzou. Fotografie se po kliknutí na test odešle do Cloudflare Workers AI; neposílejte citlivé snímky bez souhlasu dotčených osob.</p>
     <div class="photos" id="previews" aria-label="Náhledy vybraných fotografií">
       <div class="slot">1</div><div class="slot">2</div><div class="slot">3</div>
     </div>
     <div class="actions">
       <label class="pick" for="photos">Vybrat fotografie</label>
-      <input id="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="status">
+      <input id="photos" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="status">
       <button id="clear" type="button" disabled>Vymazat výběr</button>
-      <button type="button" disabled title="AI připojíme v dalším kroku">Analyzovat – připravujeme</button>
+      <button id="ocr" type="button" disabled>Otestovat čtení textu</button>
+      <button id="analyze" type="button" disabled>Kompletní analýza</button>
     </div>
     <p id="status" role="status" aria-live="polite">Zatím nejsou vybrané žádné fotografie.</p>
-    <p class="muted"><small>Před veřejným spuštěním doplníme informace o soukromí a souhlas s odesláním snímků AI službě.</small></p>
+    <p><label for="apiKey">Testovací API klíč (zůstává pouze v paměti této stránky)</label></p>
+    <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="TEST_API_KEY" style="width:100%;max-width:440px;padding:10px;box-sizing:border-box">
+    <p class="muted"><small>Testovací klíč nevkládejte do sdílených zařízení. Snímky se odesílají pouze po stisknutí testovacího tlačítka. Tato stránka ani klíč neukládá.</small></p>
+    <section id="results" hidden aria-live="polite"><h2>Výsledek testu</h2><pre id="output" style="white-space:pre-wrap;overflow-wrap:anywhere;background:rgba(128,128,128,.12);padding:16px;border-radius:12px"></pre></section>
   </main>
   <script>
-    const input=document.querySelector('#photos'), previews=document.querySelector('#previews'), status=document.querySelector('#status'), clear=document.querySelector('#clear');
-    let urls=[];
-    function reset(){urls.forEach(URL.revokeObjectURL);urls=[];previews.replaceChildren(...[1,2,3].map(n=>{const d=document.createElement('div');d.className='slot';d.textContent=n;return d}));clear.disabled=true;input.value='';status.textContent='Zatím nejsou vybrané žádné fotografie.'}
+    const input=document.querySelector('#photos'), previews=document.querySelector('#previews');
+    const status=document.querySelector('#status'), clear=document.querySelector('#clear');
+    const ocr=document.querySelector('#ocr'), analyze=document.querySelector('#analyze');
+    const apiKey=document.querySelector('#apiKey'), results=document.querySelector('#results');
+    const output=document.querySelector('#output');
+    const API='https://fotostopa-ai.vaclav-453.workers.dev';
+    let url=null, busy=false;
+    function updateButtons(){const ready=!!input.files.length&&!busy;clear.disabled=!ready;ocr.disabled=!ready;analyze.disabled=!ready}
+    function reset(){if(url)URL.revokeObjectURL(url);url=null;input.value='';
+      previews.replaceChildren(...[1,2,3].map(n=>{const d=document.createElement('div');d.className='slot';d.textContent=n;return d}));
+      results.hidden=true;output.textContent='';status.textContent='Zatím není vybraná žádná fotografie.';updateButtons()}
     input.addEventListener('change',()=>{
-      const files=[...input.files];
-      if(files.length>3){reset();status.textContent='Vyberte nejvýše tři fotografie.';return}
-      if(files.some(f=>!['image/jpeg','image/png','image/webp'].includes(f.type)||f.size>10*1024*1024)){reset();status.textContent='Povoleny jsou JPG, PNG a WebP do 10 MB na soubor.';return}
-      reset();
-      files.forEach((file,i)=>{const url=URL.createObjectURL(file);urls.push(url);const img=document.createElement('img');img.src=url;img.alt='Náhled fotografie '+(i+1);previews.children[i].replaceChildren(img)});
-      clear.disabled=files.length===0;status.textContent=files.length?'Vybráno fotografií: '+files.length+'. Snímky zůstávají pouze v prohlížeči.':'Zatím nejsou vybrané žádné fotografie.';
+      const file=input.files[0];if(url)URL.revokeObjectURL(url);url=null;
+      previews.replaceChildren(...[1,2,3].map(n=>{const d=document.createElement('div');d.className='slot';d.textContent=n;return d}));
+      results.hidden=true;
+      if(!file){updateButtons();return}
+      if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>4*1024*1024){
+        reset();status.textContent='Vyberte JPG, PNG nebo WebP do 4 MB.';return}
+      url=URL.createObjectURL(file);const img=document.createElement('img');img.src=url;img.alt='Náhled fotografie';previews.children[0].replaceChildren(img);
+      status.textContent='Fotografie připravena. Zatím nebyla odeslána.';updateButtons();
     });
     clear.addEventListener('click',reset);
-    window.addEventListener('pagehide',()=>urls.forEach(URL.revokeObjectURL));
+    async function test(endpoint){
+      const file=input.files[0],key=apiKey.value.trim();
+      if(!file||busy)return;
+      if(key.length<24){status.textContent='Zadejte platný testovací API klíč.';return}
+      busy=true;updateButtons();status.textContent='Probíhá analýza…';results.hidden=false;output.textContent='Čekám na odpověď modelu…';
+      try{
+        const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Soubor nelze načíst.'));reader.readAsDataURL(file)});
+        const response=await fetch(API+endpoint,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({image:dataUrl}),cache:'no-store'});
+        const data=await response.json();
+        if(!response.ok)throw new Error(data.error||'HTTP '+response.status);
+        output.textContent=endpoint==='/test-text'
+          ? 'PŘEPIS TEXTU (Moondream):\\n\\n'+(data.transcription||'Žádný výstup')+'\\n\\nMETRIKY:\\n'+JSON.stringify(data.metrics||{},null,2)
+          : 'POPIS FOTOGRAFIE (Moondream):\\n\\n'+(data.visual_description||'')+'\\n\\nČESKÁ ANALÝZA (Llama):\\n\\n'+(data.analysis||'')+'\\n\\nMETRIKY:\\n'+JSON.stringify(data.metrics||{},null,2);
+        status.textContent='Test dokončen.';
+      }catch(error){output.textContent='Chyba: '+error.message;status.textContent='Test se nezdařil.'}
+      finally{busy=false;updateButtons()}
+    }
+    ocr.addEventListener('click',()=>test('/test-text'));
+    analyze.addEventListener('click',()=>test('/analyze'));
+    window.addEventListener('pagehide',()=>{if(url)URL.revokeObjectURL(url)});
   </script>
 </body>
 </html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>FotoStopa – Co o vás prozradí fotografie?</title>
+  <style>
+    :root{font-family:system-ui,sans-serif;line-height:1.5}body{max-width:760px;margin:4rem auto;padding:0 1rem}h1{font-size:2.5rem;margin-bottom:0}p{color:inherit}.muted{opacity:.7}.photos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:1.5rem 0}.slot{border:2px dashed #888;border-radius:12px;aspect-ratio:4/5;display:flex;align-items:center;justify-content:center;overflow:hidden}.slot img{width:100%;height:100%;object-fit:contain}.actions{display:flex;gap:12px;flex-wrap:wrap}button,.pick{font:inherit;border-radius:9px;padding:10px 16px;border:1px solid #888;cursor:pointer}.pick{background:#2458c7;color:white;border-color:#2458c7}button:disabled{opacity:.5;cursor:not-allowed}input[type=file]{position:absolute;width:1px;height:1px;opacity:0}#status{min-height:1.5em}@media(max-width:500px){body{margin:2rem auto}.photos{gap:6px}}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>FotoStopa</h1>
+    <p>Co o vás prozradí jediná fotografie?</p>
+    <p class="muted">Vyberte jednu až tři fotografie. V této testovací verzi se žádné snímky nikam neodesílají.</p>
+    <div class="photos" id="previews" aria-label="Náhledy vybraných fotografií">
+      <div class="slot">1</div><div class="slot">2</div><div class="slot">3</div>
+    </div>
+    <div class="actions">
+      <label class="pick" for="photos">Vybrat fotografie</label>
+      <input id="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="status">
+      <button id="clear" type="button" disabled>Vymazat výběr</button>
+      <button type="button" disabled title="AI připojíme v dalším kroku">Analyzovat – připravujeme</button>
+    </div>
+    <p id="status" role="status" aria-live="polite">Zatím nejsou vybrané žádné fotografie.</p>
+    <p class="muted"><small>Před veřejným spuštěním doplníme informace o soukromí a souhlas s odesláním snímků AI službě.</small></p>
+  </main>
+  <script>
+    const input=document.querySelector('#photos'), previews=document.querySelector('#previews'), status=document.querySelector('#status'), clear=document.querySelector('#clear');
+    let urls=[];
+    function reset(){urls.forEach(URL.revokeObjectURL);urls=[];previews.replaceChildren(...[1,2,3].map(n=>{const d=document.createElement('div');d.className='slot';d.textContent=n;return d}));clear.disabled=true;input.value='';status.textContent='Zatím nejsou vybrané žádné fotografie.'}
+    input.addEventListener('change',()=>{
+      const files=[...input.files];
+      if(files.length>3){reset();status.textContent='Vyberte nejvýše tři fotografie.';return}
+      if(files.some(f=>!['image/jpeg','image/png','image/webp'].includes(f.type)||f.size>10*1024*1024)){reset();status.textContent='Povoleny jsou JPG, PNG a WebP do 10 MB na soubor.';return}
+      reset();
+      files.forEach((file,i)=>{const url=URL.createObjectURL(file);urls.push(url);const img=document.createElement('img');img.src=url;img.alt='Náhled fotografie '+(i+1);previews.children[i].replaceChildren(img)});
+      clear.disabled=files.length===0;status.textContent=files.length?'Vybráno fotografií: '+files.length+'. Snímky zůstávají pouze v prohlížeči.':'Zatím nejsou vybrané žádné fotografie.';
+    });
+    clear.addEventListener('click',reset);
+    window.addEventListener('pagehide',()=>urls.forEach(URL.revokeObjectURL));
+  </script>
+</body>
+</html>

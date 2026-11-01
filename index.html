@@ -13,7 +13,7 @@
   <main>
     <h1>FotoStopa</h1>
     <p>Co o vás prozradí jediná fotografie?</p>
-    <p class="muted">Testovací režim: vyberte jednu fotografii a porovnejte rozpoznání textu s celkovou analýzou. Fotografie se po kliknutí na test odešle do Cloudflare Workers AI; neposílejte citlivé snímky bez souhlasu dotčených osob.</p>
+    <p class="muted">Testovací režim: vyberte jednu fotografii a porovnejte rozpoznání textu s celkovou analýzou. Fotografie se po kliknutí na test odešle do Cloudflare Workeru a při testu Google Vision nebo kombinované analýze také do Google Cloud Vision API; neposílejte citlivé snímky bez souhlasu dotčených osob.</p>
     <div class="photos" id="previews" aria-label="Náhledy vybraných fotografií">
       <div class="slot">1</div><div class="slot">2</div><div class="slot">3</div>
     </div>
@@ -24,6 +24,7 @@
       <button id="ocr" type="button" disabled>Otestovat čtení textu</button>
       <button id="analyze" type="button" disabled>Kompletní analýza</button>
       <button id="google" type="button" disabled>Otestovat Google Vision</button>
+      <button id="combined" type="button" disabled>Kombinovaná analýza (experiment)</button>
     </div>
     <p id="status" role="status" aria-live="polite">Zatím nejsou vybrané žádné fotografie.</p>
     <p><label for="apiKey">Testovací API klíč (zůstává pouze v paměti této stránky)</label></p>
@@ -34,12 +35,12 @@
   <script>
     const input=document.querySelector('#photos'), previews=document.querySelector('#previews');
     const status=document.querySelector('#status'), clear=document.querySelector('#clear');
-    const ocr=document.querySelector('#ocr'), analyze=document.querySelector('#analyze'), google=document.querySelector('#google');
+    const ocr=document.querySelector('#ocr'), analyze=document.querySelector('#analyze'), google=document.querySelector('#google'), combined=document.querySelector('#combined');
     const apiKey=document.querySelector('#apiKey'), results=document.querySelector('#results');
     const output=document.querySelector('#output');
     const API='https://fotostopa-ai.vaclav-453.workers.dev';
     let url=null, busy=false;
-    function updateButtons(){const ready=!!input.files.length&&!busy;clear.disabled=!ready;ocr.disabled=!ready;analyze.disabled=!ready;google.disabled=!ready}
+    function updateButtons(){const ready=!!input.files.length&&!busy;clear.disabled=!ready;ocr.disabled=!ready;analyze.disabled=!ready;google.disabled=!ready;combined.disabled=!ready}
     function reset(){if(url)URL.revokeObjectURL(url);url=null;input.value='';
       previews.replaceChildren(...[1,2,3].map(n=>{const d=document.createElement('div');d.className='slot';d.textContent=n;return d}));
       results.hidden=true;output.textContent='';status.textContent='Zatím není vybraná žádná fotografie.';updateButtons()}
@@ -64,7 +65,9 @@
         const response=await fetch(API+endpoint,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({image:dataUrl}),cache:'no-store'});
         const data=await response.json();
         if(!response.ok)throw new Error(data.error||'HTTP '+response.status);
-        if(endpoint==='/test-google'){
+        if(endpoint==='/test-combined'){
+          output.textContent='KOMBINOVANÁ ANALÝZA:\n\n'+data.analysis+'\n\nPODKLADY MODELŮ:\n'+JSON.stringify(data.evidence||{},null,2);
+        }else if(endpoint==='/test-google'){
           const lines=[
             'GOOGLE VISION – ROZPOZNANÝ TEXT:', data.text||'(žádný text)',
             'LOGA:',JSON.stringify(data.logos||[],null,2),
@@ -82,6 +85,7 @@
     ocr.addEventListener('click',()=>test('/test-text'));
     analyze.addEventListener('click',()=>test('/analyze'));
     google.addEventListener('click',()=>test('/test-google'));
+    combined.addEventListener('click',()=>test('/test-combined'));
     window.addEventListener('pagehide',()=>{if(url)URL.revokeObjectURL(url)});
   </script>
 </body>

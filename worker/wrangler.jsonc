@@ -1,5 +1,6 @@
 {
   "name": "fotostopa-ai",
+  // Deployed automatically from the main branch via Cloudflare Builds.
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
   "workers_dev": true,

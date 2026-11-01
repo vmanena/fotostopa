@@ -2,10 +2,17 @@ const MODEL = '@cf/moondream/moondream3.1-9B-A2B';
 const TEXT_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 const MAX_REQUEST_BYTES = 7 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
-function json(data, status = 200) {
+const ALLOWED_ORIGIN = 'https://vmanena.github.io';
+function corsHeaders(request) {
+  return request.headers.get('Origin') === ALLOWED_ORIGIN
+    ? { 'Access-Control-Allow-Origin': ALLOWED_ORIGIN, 'Vary': 'Origin' }
+    : {};
+}
+function json(data, status = 200, request = null) {
   return new Response(JSON.stringify(data), { status, headers: {
     'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'
+    'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+    ...(request ? corsHeaders(request) : {})
   } });
 }
 function authorized(request, secret) {
@@ -20,27 +27,37 @@ function authorized(request, secret) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (request.method === 'OPTIONS' && ['/analyze', '/test-text'].includes(url.pathname)) {
+      if (request.headers.get('Origin') !== ALLOWED_ORIGIN) return new Response(null, { status: 403 });
+      return new Response(null, { status: 204, headers: {
+        ...corsHeaders(request),
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+        'Access-Control-Max-Age': '600'
+      } });
+    }
     if (url.pathname === '/' && request.method === 'GET')
       return json({ service: 'FotoStopa AI', status: 'ready', note: 'Testovací API vyžaduje autorizaci.' });
-    if (url.pathname !== '/analyze' && url.pathname !== '/test-qwen' && url.pathname !== '/test-text') return json({ error: 'Nenalezeno.' }, 404);
-    if (request.method !== 'POST') return json({ error: 'Použijte POST.' }, 405);
-    if (!authorized(request, env.TEST_API_KEY)) return json({ error: 'Neplatný nebo chybějící testovací klíč.' }, 401);
-    if (!env.AI) return json({ error: 'Chybí vazba Workers AI.' }, 503);
+    const reply = (data, status = 200) => json(data, status, request);
+    if (url.pathname !== '/analyze' && url.pathname !== '/test-qwen' && url.pathname !== '/test-text') return reply({ error: 'Nenalezeno.' }, 404);
+    if (request.method !== 'POST') return reply({ error: 'Použijte POST.' }, 405);
+    if (!authorized(request, env.TEST_API_KEY)) return reply({ error: 'Neplatný nebo chybějící testovací klíč.' }, 401);
+    if (!env.AI) return reply({ error: 'Chybí vazba Workers AI.' }, 503);
     const declaredSize = Number(request.headers.get('Content-Length'));
-    if (declaredSize > MAX_REQUEST_BYTES) return json({ error: 'Požadavek je příliš velký.' }, 413);
+    if (declaredSize > MAX_REQUEST_BYTES) return reply({ error: 'Požadavek je příliš velký.' }, 413);
     if (!(request.headers.get('Content-Type') || '').toLowerCase().startsWith('application/json'))
-      return json({ error: 'Očekávám application/json.' }, 415);
+      return reply({ error: 'Očekávám application/json.' }, 415);
     let body;
     try {
       const buffer = await request.arrayBuffer();
-      if (buffer.byteLength > MAX_REQUEST_BYTES) return json({ error: 'Požadavek je příliš velký.' }, 413);
+      if (buffer.byteLength > MAX_REQUEST_BYTES) return reply({ error: 'Požadavek je příliš velký.' }, 413);
       body = JSON.parse(new TextDecoder().decode(buffer));
-    } catch { return json({ error: 'Neplatný JSON.' }, 400); }
+    } catch { return reply({ error: 'Neplatný JSON.' }, 400); }
     if (url.pathname === '/test-qwen') {
       // Independent text-model test. No photo is sent to Qwen.
       const description = typeof body?.description === 'string' ? body.description.trim() : '';
       if (!description || description.length > 4000)
-        return json({ error: 'Pole description musí obsahovat 1 až 4000 znaků.' }, 400);
+        return reply({ error: 'Pole description musí obsahovat 1 až 4000 znaků.' }, 400);
       try {
         const result = await env.AI.run(TEXT_MODEL, {
           messages: [
@@ -52,24 +69,24 @@ export default {
         });
         const output = result?.result ?? result;
         const answer = output?.response ?? output?.choices?.[0]?.message?.content ?? output?.answer ?? null;
-        return json({ success: typeof answer === 'string' && answer.length > 0,
+        return reply({ success: typeof answer === 'string' && answer.length > 0,
           model: TEXT_MODEL, analysis: answer, usage: result?.usage ?? output?.usage ?? null });
       } catch (error) {
         console.error('FotoStopa Qwen test failed:', {
           name: error?.name ?? 'Error', message: error?.message ?? 'Unknown error'
         });
-        return json({ error: 'Test jazykového modelu se nezdařil. Podrobnosti jsou v Cloudflare Logs.' }, 502);
+        return reply({ error: 'Test jazykového modelu se nezdařil. Podrobnosti jsou v Cloudflare Logs.' }, 502);
       }
     }
     const image = body?.image;
-    if (typeof image !== 'string') return json({ error: 'Chybí pole image.' }, 400);
+    if (typeof image !== 'string') return reply({ error: 'Chybí pole image.' }, 400);
     const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(image);
-    if (!match) return json({ error: 'Obrázek musí být JPG, PNG nebo WebP jako Base64 data URI.' }, 400);
+    if (!match) return reply({ error: 'Obrázek musí být JPG, PNG nebo WebP jako Base64 data URI.' }, 400);
     const base64 = match[2];
     const approxBytes = Math.floor(base64.length * 3 / 4) -
       (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0);
     if (approxBytes <= 0 || approxBytes > MAX_IMAGE_BYTES)
-      return json({ error: 'Obrázek musí mít nejvýše 4 MB.' }, 413);
+      return reply({ error: 'Obrázek musí mít nejvýše 4 MB.' }, 413);
     // Diagnostic-only vision test: ask specifically for legible text, without language-model rewriting.
     const textTest = url.pathname === '/test-text';
     const question = textTest
@@ -82,13 +99,13 @@ export default {
       });
       const output = result?.result ?? result;
       if (textTest) {
-        return json({ success: typeof output?.answer === 'string' && !!output.answer.trim(),
+        return reply({ success: typeof output?.answer === 'string' && !!output.answer.trim(),
           model: MODEL, transcription: output?.answer ?? null,
           metrics: output?.metrics ?? null, finish_reason: output?.finish_reason ?? null });
       }
       const description = output?.answer;
       if (typeof description !== 'string' || !description.trim()) {
-        return json({ error: 'Obrazový model nevrátil použitelný popis fotografie.' }, 502);
+        return reply({ error: 'Obrazový model nevrátil použitelný popis fotografie.' }, 502);
       }
       let languageResult;
       try {
@@ -104,16 +121,16 @@ export default {
         console.error('FotoStopa language model failed:', {
           name: error?.name ?? 'Error', message: error?.message ?? 'Unknown error'
         });
-        return json({ error: 'Česká analýza se nezdařila.', visual_description: description,
+        return reply({ error: 'Česká analýza se nezdařila.', visual_description: description,
           visual_model: MODEL }, 502);
       }
       const textOutput = languageResult?.result ?? languageResult;
       const analysis = textOutput?.response ?? textOutput?.choices?.[0]?.message?.content ?? textOutput?.answer;
       if (typeof analysis !== 'string' || !analysis.trim()) {
-        return json({ error: 'Jazykový model nevrátil použitelný text.',
+        return reply({ error: 'Jazykový model nevrátil použitelný text.',
           visual_description: description, visual_model: MODEL }, 502);
       }
-      return json({ success: true, model: TEXT_MODEL, visual_model: MODEL,
+      return reply({ success: true, model: TEXT_MODEL, visual_model: MODEL,
         visual_description: description, analysis,
         metrics: { vision: output?.metrics ?? null, language: languageResult?.usage ?? textOutput?.usage ?? null } });
     } catch (error) {
@@ -121,7 +138,7 @@ export default {
       console.error('FotoStopa AI request failed:', {
         name: error?.name ?? 'Error', message: error?.message ?? 'Unknown error'
       });
-      return json({ error: 'Analýza se nezdařila. Podrobnosti jsou v Cloudflare Logs.' }, 502);
+      return reply({ error: 'Analýza se nezdařila. Podrobnosti jsou v Cloudflare Logs.' }, 502);
     }
   }
 };

@@ -44,11 +44,11 @@ export default {
       try {
         const result = await env.AI.run(TEXT_MODEL, {
           messages: [
-            { role: 'system', content: 'Jsi asistent pro českou výuku digitální stopy. Piš výhradně česky. Vycházej jen z dodaného popisu fotografie. Rozlišuj viditelné skutečnosti, možné závěry a nepodložené spekulace. Nepřidávej nepozorované detaily ani identitu lidí. Odpovídej stručně, bez interních úvah.' },
-            { role: 'user', content: 'Z tohoto anglického popisu fotografie připrav česky: (1) stručný popis viditelných prvků, (2) nejvýše tři možné digitální stopy s vysvětlením důkazu a nejistoty, (3) dvě doporučení pro bezpečné sdílení. Popis:\\n' + description }
+            { role: 'system', content: 'Jsi redaktor českých výukových materiálů o digitální stopě. Piš přirozenou, gramaticky správnou češtinou. Pracuj výhradně s dodaným popisem. Nepřidávej identitu osob, konkrétní místo ani čas, pokud nejsou doložené. Žádné úvahy o vlastním postupu.' },
+            { role: 'user', content: 'Z následujícího popisu fotografie napiš nejvýše 130 slov česky. Nejprve dvě věty o tom, co je na snímku přímo vidět. Potom uveď dvě potenciálně odhalující stopy; u každé napiš, co může naznačovat a proč to není jisté. Nakonec jedno praktické doporučení pro sdílení. Pokud popis neobsahuje dvě smysluplné stopy, uveď jen jednu. Nepovažuj každý předmět automaticky za digitální stopu.\\n\\nPopis: ' + description }
           ],
-          max_tokens: 650,
-          temperature: 0.2
+          max_tokens: 1100,
+          temperature: 0.1
         });
         const output = result?.result ?? result;
         const answer = output?.response ?? output?.choices?.[0]?.message?.content ?? output?.answer ?? null;

@@ -1,5 +1,5 @@
 const MODEL = '@cf/moondream/moondream3.1-9B-A2B';
-const TEXT_MODEL = '@cf/qwen/qwen3-30b-a3b-fp8';
+const TEXT_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 const MAX_REQUEST_BYTES = 7 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 function json(data, status = 200) {

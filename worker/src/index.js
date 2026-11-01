@@ -45,7 +45,7 @@ export default {
     if (approxBytes <= 0 || approxBytes > MAX_IMAGE_BYTES)
       return json({ error: 'Obrázek musí mít nejvýše 4 MB.' }, 413);
     // First validate basic image understanding before requesting structured analysis.
-    const question = 'What can you see in this image? Describe the main objects, visible text, and surroundings briefly.';
+    const question = 'Co vidíš na tomto obrázku? Stručně česky popiš hlavní objekty, viditelné nápisy a okolní prostředí.';
     try {
       const result = await env.AI.run(MODEL, {
         task: 'query', image, question, reasoning: false,

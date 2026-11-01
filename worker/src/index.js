@@ -44,17 +44,8 @@ export default {
       (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0);
     if (approxBytes <= 0 || approxBytes > MAX_IMAGE_BYTES)
       return json({ error: 'Obrázek musí mít nejvýše 4 MB.' }, 413);
-    const question = [
-      'Analyzuj fotografii jako pomůcku k výuce digitální stopy. Odpověz česky.',
-      '1. Vypiš pět nejzajímavějších přímo viditelných detailů.',
-      '2. U každého vysvětli, co by z něj šlo opatrně odvodit a co už by byla spekulace.',
-      '3. Zmiň možné stopy místa, času, prostředí a případných osobních údajů, pouze pokud je fotografie skutečně obsahuje.',
-      '4. Na závěr přidej tři stručná doporučení pro bezpečné sdílení.',
-      'Nevymýšlej si neviditelné detaily. Neurčuj identitu lidí ani citlivé osobní charakteristiky.',
-      'Nepředstírej znalost EXIF metadat: nejsou součástí této analýzy.',
-      'U každého odhadu uveď, z jakého vizuálního důkazu vychází.',
-      'Pokud si nejsi jistý, řekni to otevřeně.'
-    ].join('\n');
+    // First validate basic image understanding before requesting structured analysis.
+    const question = 'What can you see in this image? Describe the main objects, visible text, and surroundings briefly.';
     try {
       const result = await env.AI.run(MODEL, {
         task: 'query', image, question, reasoning: false,

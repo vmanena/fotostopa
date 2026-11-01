@@ -1,4 +1,5 @@
 const MODEL = '@cf/moondream/moondream3.1-9B-A2B';
+const TEXT_MODEL = '@cf/qwen/qwen3-30b-a3b-fp8';
 const MAX_REQUEST_BYTES = 7 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 function json(data, status = 200) {
@@ -21,7 +22,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/' && request.method === 'GET')
       return json({ service: 'FotoStopa AI', status: 'ready', note: 'Testovací API vyžaduje autorizaci.' });
-    if (url.pathname !== '/analyze') return json({ error: 'Nenalezeno.' }, 404);
+    if (url.pathname !== '/analyze' && url.pathname !== '/test-qwen') return json({ error: 'Nenalezeno.' }, 404);
     if (request.method !== 'POST') return json({ error: 'Použijte POST.' }, 405);
     if (!authorized(request, env.TEST_API_KEY)) return json({ error: 'Neplatný nebo chybějící testovací klíč.' }, 401);
     if (!env.AI) return json({ error: 'Chybí vazba Workers AI.' }, 503);
@@ -35,6 +36,31 @@ export default {
       if (buffer.byteLength > MAX_REQUEST_BYTES) return json({ error: 'Požadavek je příliš velký.' }, 413);
       body = JSON.parse(new TextDecoder().decode(buffer));
     } catch { return json({ error: 'Neplatný JSON.' }, 400); }
+    if (url.pathname === '/test-qwen') {
+      // Independent text-model test. No photo is sent to Qwen.
+      const description = typeof body?.description === 'string' ? body.description.trim() : '';
+      if (!description || description.length > 4000)
+        return json({ error: 'Pole description musí obsahovat 1 až 4000 znaků.' }, 400);
+      try {
+        const result = await env.AI.run(TEXT_MODEL, {
+          messages: [
+            { role: 'system', content: 'Jsi asistent pro českou výuku digitální stopy. Piš výhradně česky. Vycházej jen z dodaného popisu fotografie. Rozlišuj viditelné skutečnosti, možné závěry a nepodložené spekulace. Nepřidávej nepozorované detaily ani identitu lidí. Odpovídej stručně, bez interních úvah.' },
+            { role: 'user', content: 'Z tohoto anglického popisu fotografie připrav česky: (1) stručný popis viditelných prvků, (2) nejvýše tři možné digitální stopy s vysvětlením důkazu a nejistoty, (3) dvě doporučení pro bezpečné sdílení. Popis:\\n' + description }
+          ],
+          max_tokens: 650,
+          temperature: 0.2
+        });
+        const output = result?.result ?? result;
+        const answer = output?.response ?? output?.choices?.[0]?.message?.content ?? output?.answer ?? null;
+        return json({ success: typeof answer === 'string' && answer.length > 0,
+          model: TEXT_MODEL, analysis: answer, usage: result?.usage ?? output?.usage ?? null });
+      } catch (error) {
+        console.error('FotoStopa Qwen test failed:', {
+          name: error?.name ?? 'Error', message: error?.message ?? 'Unknown error'
+        });
+        return json({ error: 'Test jazykového modelu se nezdařil. Podrobnosti jsou v Cloudflare Logs.' }, 502);
+      }
+    }
     const image = body?.image;
     if (typeof image !== 'string') return json({ error: 'Chybí pole image.' }, 400);
     const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(image);

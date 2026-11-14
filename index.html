@@ -25,12 +25,12 @@
       <button id="analyze" type="button" disabled>Kompletní analýza</button>
       <button id="google" type="button" disabled>Otestovat Google Vision</button>
       <button id="combined" type="button" disabled>Kombinovaná analýza (experiment)</button>
-      <button id="risks" type="button" disabled>Hloubková analýza rizik (experiment)</button>
+      <button id="risks" type="button" disabled>Hloubková analýza rizik (bez klíče)</button>
     </div>
     <p id="status" role="status" aria-live="polite">Zatím nejsou vybrané žádné fotografie.</p>
     <p><label for="apiKey">Testovací API klíč (zůstává pouze v paměti této stránky)</label></p>
     <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="TEST_API_KEY" style="width:100%;max-width:440px;padding:10px;box-sizing:border-box">
-    <p class="muted"><small>Testovací klíč nevkládejte do sdílených zařízení. Snímky se odesílají pouze po stisknutí testovacího tlačítka. Tato stránka ani klíč neukládá.</small></p>
+    <p class="muted"><small>Pro hloubkovou analýzu není klíč potřeba; ostatní diagnostické testy ho nadále vyžadují. Testovací klíč nevkládejte do sdílených zařízení. Snímky se odesílají pouze po stisknutí testovacího tlačítka. Tato stránka ani klíč neukládá.</small></p>
     <section id="results" hidden aria-live="polite"><h2>Výsledek testu</h2><pre id="output" style="white-space:pre-wrap;overflow-wrap:anywhere;background:rgba(128,128,128,.12);padding:16px;border-radius:12px"></pre></section>
   </main>
   <script>
@@ -59,14 +59,14 @@
     async function test(endpoint){
       const file=input.files[0],key=apiKey.value.trim();
       if(!file||busy)return;
-      if(key.length<24){status.textContent='Zadejte platný testovací API klíč.';return}
+      if(endpoint!=='/public-risks'&&key.length<24){status.textContent='Zadejte platný testovací API klíč pro diagnostické testy.';return}
       busy=true;updateButtons();status.textContent='Probíhá analýza…';results.hidden=false;output.textContent='Čekám na odpověď modelu…';
       try{
         const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Soubor nelze načíst.'));reader.readAsDataURL(file)});
-        const response=await fetch(API+endpoint,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({image:dataUrl}),cache:'no-store'});
+        const response=await fetch(API+endpoint,{method:'POST',headers:{'Content-Type':'application/json',...(endpoint==='/public-risks'?{}:{'Authorization':'Bearer '+key})},body:JSON.stringify({image:dataUrl}),cache:'no-store'});
         const data=await response.json();
         if(!response.ok)throw new Error(data.error||'HTTP '+response.status);
-        if(endpoint==='/test-risks'){
+        if(endpoint==='/test-risks'||endpoint==='/public-risks'){
           output.textContent='HLOUBKOVÁ ANALÝZA RIZIK:\n\n'+data.analysis+'\n\nROZPOZNANÉ PODKLADY:\n'+JSON.stringify(data.evidence||{},null,2);
         }else if(endpoint==='/test-combined'){
           output.textContent='KOMBINOVANÁ ANALÝZA:\n\n'+data.analysis+'\n\nPODKLADY MODELŮ:\n'+JSON.stringify(data.evidence||{},null,2);
@@ -89,7 +89,7 @@
     analyze.addEventListener('click',()=>test('/analyze'));
     google.addEventListener('click',()=>test('/test-google'));
     combined.addEventListener('click',()=>test('/test-combined'));
-    risks.addEventListener('click',()=>test('/test-risks'));
+    risks.addEventListener('click',()=>test('/public-risks'));
     window.addEventListener('pagehide',()=>{if(url)URL.revokeObjectURL(url)});
   </script>
 </body>

@@ -4,6 +4,12 @@
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
   "workers_dev": true,
+  "kv_namespaces": [
+    {
+      "binding": "FOTOSTOPA_LIMITS",
+      "id": "94ad44e6ff304189b44ab9c750451fa0"
+    }
+  ],
   "ai": {
     "binding": "AI"
   }

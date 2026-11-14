@@ -27,7 +27,7 @@ function authorized(request, secret) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (request.method === 'OPTIONS' && ['/analyze', '/test-text', '/test-google', '/test-combined', '/test-risks'].includes(url.pathname)) {
+    if (request.method === 'OPTIONS' && ['/analyze', '/test-text', '/test-google', '/test-combined', '/test-risks', '/public-risks'].includes(url.pathname)) {
       if (request.headers.get('Origin') !== ALLOWED_ORIGIN) return new Response(null, { status: 403 });
       return new Response(null, { status: 204, headers: {
         ...corsHeaders(request),
@@ -39,9 +39,34 @@ export default {
     if (url.pathname === '/' && request.method === 'GET')
       return json({ service: 'FotoStopa AI', status: 'ready', note: 'Testovací API vyžaduje autorizaci.' });
     const reply = (data, status = 200) => json(data, status, request);
-    if (url.pathname !== '/analyze' && url.pathname !== '/test-qwen' && url.pathname !== '/test-text' && url.pathname !== '/test-google' && url.pathname !== '/test-combined' && url.pathname !== '/test-risks') return reply({ error: 'Nenalezeno.' }, 404);
+    if (url.pathname !== '/analyze' && url.pathname !== '/test-qwen' && url.pathname !== '/test-text' && url.pathname !== '/test-google' && url.pathname !== '/test-combined' && url.pathname !== '/test-risks' && url.pathname !== '/public-risks') return reply({ error: 'Nenalezeno.' }, 404);
     if (request.method !== 'POST') return reply({ error: 'Použijte POST.' }, 405);
-    if (!authorized(request, env.TEST_API_KEY)) return reply({ error: 'Neplatný nebo chybějící testovací klíč.' }, 401);
+    const isPublic = url.pathname === '/public-risks';
+    if (!isPublic && !authorized(request, env.TEST_API_KEY)) return reply({ error: 'Neplatný nebo chybějící testovací klíč.' }, 401);
+    if (isPublic) {
+      // Fail closed: never expose a billable public endpoint without configured limits.
+      if (!env.FOTOSTOPA_LIMITS) return reply({ error: 'Veřejná analýza zatím není aktivována. Chybí úložiště limitů.' }, 503);
+      if (request.headers.get('Origin') !== ALLOWED_ORIGIN)
+        return reply({ error: 'Nepovolený původ požadavku.' }, 403);
+      const ip = request.headers.get('CF-Connecting-IP');
+      if (!ip) return reply({ error: 'Nelze ověřit limit požadavků.' }, 403);
+      const day = new Date().toISOString().slice(0, 10);
+      const ipHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ip))))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+      const globalKey = 'daily:' + day;
+      const ipKey = 'daily:' + day + ':ip:' + ipHash;
+      const [globalCount, ipCount] = await Promise.all([
+        env.FOTOSTOPA_LIMITS.get(globalKey), env.FOTOSTOPA_LIMITS.get(ipKey)
+      ]);
+      if (Number(globalCount || 0) >= 100 || Number(ipCount || 0) >= 3)
+        return reply({ error: 'Denní limit analýz byl vyčerpán. Zkuste to zítra.' }, 429);
+      // Reserve quota before paid API calls; failed analyses still count.
+      // KV is eventually consistent: these are soft limits, not a billing guarantee.
+      await Promise.all([
+        env.FOTOSTOPA_LIMITS.put(globalKey, String(Number(globalCount || 0) + 1), { expirationTtl: 172800 }),
+        env.FOTOSTOPA_LIMITS.put(ipKey, String(Number(ipCount || 0) + 1), { expirationTtl: 172800 })
+      ]);
+    }
     if (!env.AI && url.pathname !== '/test-google') return reply({ error: 'Chybí vazba Workers AI.' }, 503);
     const declaredSize = Number(request.headers.get('Content-Length'));
     if (declaredSize > MAX_REQUEST_BYTES) return reply({ error: 'Požadavek je příliš velký.' }, 413);
@@ -87,8 +112,8 @@ export default {
       (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0);
     if (approxBytes <= 0 || approxBytes > MAX_IMAGE_BYTES)
       return reply({ error: 'Obrázek musí mít nejvýše 4 MB.' }, 413);
-    if (url.pathname === '/test-combined' || url.pathname === '/test-risks') {
-      const deepRiskMode = url.pathname === '/test-risks';
+    if (url.pathname === '/test-combined' || url.pathname === '/test-risks' || url.pathname === '/public-risks') {
+      const deepRiskMode = url.pathname !== '/test-combined';
       if (!env.GOOGLE_VISION_API_KEY) return reply({ error: 'Chybí nastavení Google Vision.' }, 503);
       try {
         const [vision, googleResponse] = await Promise.all([
